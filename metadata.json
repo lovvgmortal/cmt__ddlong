@@ -1,0 +1,5 @@
+{
+  "name": "Copy of YouTube Channel Analyzer",
+  "description": "An application to fetch and analyze video data from a YouTube channel, including thumbnails, views, likes, comments, and provides functionality to download all comments for a specific video as a CSV file.",
+  "requestFramePermissions": []
+}
