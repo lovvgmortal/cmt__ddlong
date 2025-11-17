@@ -4,7 +4,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { VideoCard } from './components/VideoCard';
 import { LoginScreen } from './components/LoginScreen';
 import { SettingsIcon, TrashIcon, AddIcon, ArrowLeftIcon, RefreshIcon, SubscriberIcon, VideoCountIcon, DownloadIcon, ZipIcon, CloseIcon } from './components/Icons';
-import { fetchChannelInfo, fetchChannelVideos, getVideoComments } from './services/youtubeService';
+import { fetchChannelInfo, fetchChannelVideos, getVideoComments, saveVideosToCache, getVideosFromCache, deleteVideosFromCache } from './services/youtubeService';
 import type { Channel, ApiSettings, YouTubeVideo, YouTubeComment } from './types';
 
 declare var JSZip: any;
@@ -27,7 +27,14 @@ const App: React.FC = () => {
   const [channels, setChannels] = useState<Channel[]>(() => {
     try {
       const saved = localStorage.getItem('yt-analyzer-channels');
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const loadedChannels = JSON.parse(saved) as Omit<Channel, 'videos'>[];
+        return loadedChannels.map(channel => ({
+          ...channel,
+          videos: [],
+        }));
+      }
+      return [];
     } catch {
       return [];
     }
@@ -51,7 +58,6 @@ const App: React.FC = () => {
   }, [apiSettings]);
 
   useEffect(() => {
-    // Persist channels without their video lists to avoid oversized local storage.
     const channelsToSave = channels.map(({ videos, ...rest }) => rest);
     localStorage.setItem('yt-analyzer-channels', JSON.stringify(channelsToSave));
   }, [channels]);
@@ -100,6 +106,9 @@ const App: React.FC = () => {
   }, [newChannelUrl, apiSettings.activeKey, channels]);
   
   const removeChannel = (channelIdToRemove: string) => {
+      deleteVideosFromCache(channelIdToRemove).catch(err => {
+        console.error(`Failed to remove cached videos for channel ${channelIdToRemove}:`, err);
+      });
       setChannels(prev => prev.filter(c => c.id !== channelIdToRemove));
   };
 
@@ -116,6 +125,7 @@ const App: React.FC = () => {
             apiSettings.activeKey,
             (msg) => setLoadingMessage(msg)
         );
+        await saveVideosToCache(channelId, videos);
         setChannels(prev => prev.map(c => 
             c.id === channelId ? { ...c, videos: videos, error: null } : c
         ));
@@ -128,6 +138,32 @@ const App: React.FC = () => {
         setLoadingMessage('');
     }
   }, [channels, apiSettings.activeKey]);
+
+  const handleSelectChannel = async (channelId: string) => {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    setSelectedChannelId(channelId);
+
+    if (channel.videos.length === 0) {
+      setIsLoading(true);
+      setLoadingMessage(`Checking for saved videos for ${channel.name}...`);
+      try {
+        const cachedVideos = await getVideosFromCache(channelId);
+        if (cachedVideos && cachedVideos.length > 0) {
+          setChannels(prev => prev.map(c =>
+            c.id === channelId ? { ...c, videos: cachedVideos } : c
+          ));
+        }
+      } catch (err) {
+        console.error("Failed to load videos from cache:", err);
+        setError("Could not load saved videos. You may need to fetch them again.");
+      } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+      }
+    }
+  };
 
   const handleRefreshChannel = useCallback(async (channelIdToRefresh: string) => {
     const channelToRefresh = channels.find(c => c.id === channelIdToRefresh);
@@ -380,7 +416,7 @@ const App: React.FC = () => {
       {channels.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
           {channels.map(channel => (
-            <div key={channel.id} onClick={() => setSelectedChannelId(channel.id)} className="relative group bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-col items-center text-center cursor-pointer hover:bg-gray-800/60 transition-colors">
+            <div key={channel.id} onClick={() => handleSelectChannel(channel.id)} className="relative group bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-col items-center text-center cursor-pointer hover:bg-gray-800/60 transition-colors">
               <button 
                 onClick={(e) => { e.stopPropagation(); removeChannel(channel.id); }} 
                 className="absolute top-2 right-2 p-1.5 bg-black/30 rounded-full text-gray-400 hover:text-white hover:bg-red-800/70 transition-colors"

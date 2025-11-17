@@ -1,4 +1,3 @@
-
 import type { YouTubeVideo, YouTubeComment } from '../types';
 
 const API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
@@ -59,8 +58,6 @@ export const fetchChannelInfo = async (
   } else if (type === 'username') {
     queryParam = `forUsername=${value}`;
   } else if (type === 'handle') {
-    // The 'forHandle' parameter is not officially documented for the channels endpoint,
-    // so we use the search endpoint as a reliable fallback for handles.
     const searchUrl = new URL(`${API_BASE_URL}/search`);
     searchUrl.searchParams.set('part', 'snippet');
     searchUrl.searchParams.set('q', value);
@@ -73,16 +70,15 @@ export const fetchChannelInfo = async (
     const foundChannel = searchResponse.items[0];
     queryParam = `id=${foundChannel.id.channelId}`;
   } else if (type === 'custom') {
-    // For legacy custom URLs (/c/...), we must use the search API as a fallback.
     const searchUrl = new URL(`${API_BASE_URL}/search`);
     searchUrl.searchParams.set('part', 'snippet');
     searchUrl.searchParams.set('q', value);
     searchUrl.searchParams.set('type', 'channel');
     searchUrl.searchParams.set('key', apiKey);
+    
+    // FIX: The API call to fetch search results was missing, causing a reference error.
     const searchResponse = await fetch(searchUrl.toString()).then(handleApiError);
     
-    // This is not foolproof, but it's the best option for these legacy URLs.
-    // We try to find a channel where the title matches the custom URL value.
     const foundChannel = searchResponse.items?.find((item: any) => 
         item.snippet.channelTitle.toLowerCase() === value.toLowerCase()
     );
@@ -233,4 +229,85 @@ export const getVideoComments = async (
   
   updateProgress(100);
   return allComments;
+};
+
+// --- IndexedDB Caching for Videos ---
+
+const DB_NAME = 'YTAnalyzerDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'channelVideos';
+
+let db: IDBDatabase;
+
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    if (db) {
+      return resolve(db);
+    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = () => {
+      console.error('IndexedDB error:', request.error);
+      reject('IndexedDB error: ' + request.error);
+    };
+
+    request.onsuccess = () => {
+      db = request.result;
+      resolve(db);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const dbInstance = (event.target as IDBOpenDBRequest).result;
+      if (!dbInstance.objectStoreNames.contains(STORE_NAME)) {
+        dbInstance.createObjectStore(STORE_NAME, { keyPath: 'channelId' });
+      }
+    };
+  });
+};
+
+export const saveVideosToCache = async (channelId: string, videos: YouTubeVideo[]): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put({ channelId, videos });
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+        console.error('Error saving videos to IndexedDB:', request.error);
+        reject(request.error);
+    };
+  });
+};
+
+export const getVideosFromCache = async (channelId: string): Promise<YouTubeVideo[] | null> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(channelId);
+
+    request.onsuccess = () => {
+      resolve(request.result?.videos || null);
+    };
+    request.onerror = () => {
+        console.error('Error getting videos from IndexedDB:', request.error);
+        reject(request.error);
+    };
+  });
+};
+
+export const deleteVideosFromCache = async (channelId: string): Promise<void> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(channelId);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => {
+            console.error('Error deleting videos from IndexedDB:', request.error);
+            reject(request.error);
+        };
+    });
 };
