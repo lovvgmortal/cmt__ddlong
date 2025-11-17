@@ -159,17 +159,34 @@ const App: React.FC = () => {
   };
   
   const createVideoCommentsCsvString = (comments: YouTubeComment[], video: YouTubeVideo): string => {
-    const headers = ['Author', 'Published At', 'Like Count', 'Comment Text', 'Video Description', 'Video Tags'];
+    const headers = ['Video Description', 'Video Tags', 'Author', 'Published At', 'Like Count', 'Comment Text'];
+    const sortedComments = [...comments].sort((a, b) => b.likeCount - a.likeCount);
+
+    const csvRows = sortedComments.map((c, index) => {
+      if (index === 0) {
+        return [
+          escapeCsvField(video.description),
+          escapeCsvField(video.tags.join(' | ')),
+          escapeCsvField(c.author),
+          escapeCsvField(c.publishedAt),
+          escapeCsvField(c.likeCount.toString()),
+          escapeCsvField(c.text),
+        ].join(',');
+      } else {
+        return [
+          '',
+          '',
+          escapeCsvField(c.author),
+          escapeCsvField(c.publishedAt),
+          escapeCsvField(c.likeCount.toString()),
+          escapeCsvField(c.text),
+        ].join(',');
+      }
+    });
+
     return [
       headers.join(','),
-      ...comments.map(c => [
-        escapeCsvField(c.author),
-        escapeCsvField(c.publishedAt),
-        escapeCsvField(c.likeCount.toString()),
-        escapeCsvField(c.text),
-        escapeCsvField(video.description),
-        escapeCsvField(video.tags.join(' | ')),
-      ].join(','))
+      ...csvRows,
     ].join('\n');
   };
 
@@ -206,41 +223,48 @@ const App: React.FC = () => {
     }
 
     if (format === 'single') {
-        type AggregatedComment = YouTubeComment & {
-            videoTitle: string;
-            videoDescription: string;
-            videoTags: string[];
-        };
-
-        const allComments: AggregatedComment[] = [];
+        const csvRows: string[] = [];
         for (let i = 0; i < totalVideosToFetch; i++) {
             const video = videosWithComments[i];
             setAllCommentsProgress({ current: i + 1, total: totalVideosToFetch, videoTitle: video.title });
             try {
                 const comments = await getVideoComments(video.id, apiSettings.activeKey, () => {});
-                allComments.push(...comments.map(c => ({ 
-                    ...c, 
-                    videoTitle: video.title,
-                    videoDescription: video.description,
-                    videoTags: video.tags,
-                })));
+                if (comments.length > 0) {
+                  const sortedComments = [...comments].sort((a, b) => b.likeCount - a.likeCount);
+                  const videoCommentRows = sortedComments.map((c, index) => {
+                    if (index === 0) {
+                       return [
+                          escapeCsvField(video.title),
+                          escapeCsvField(video.description),
+                          escapeCsvField(video.tags.join(' | ')),
+                          escapeCsvField(c.author),
+                          escapeCsvField(c.publishedAt),
+                          escapeCsvField(c.likeCount.toString()),
+                          escapeCsvField(c.text),
+                       ].join(',');
+                    } else {
+                       return [
+                          escapeCsvField(video.title),
+                          '',
+                          '',
+                          escapeCsvField(c.author),
+                          escapeCsvField(c.publishedAt),
+                          escapeCsvField(c.likeCount.toString()),
+                          escapeCsvField(c.text),
+                       ].join(',');
+                    }
+                  });
+                  csvRows.push(...videoCommentRows);
+                }
             } catch (err: any) {
                 console.warn(`Could not fetch comments for "${video.title}": ${err.message}`);
             }
         }
-        if (allComments.length > 0) {
-            const headers = ['Video Title', 'Author', 'Published At', 'Like Count', 'Comment Text', 'Video Description', 'Video Tags'];
+        if (csvRows.length > 0) {
+            const headers = ['Video Title', 'Video Description', 'Video Tags', 'Author', 'Published At', 'Like Count', 'Comment Text'];
             const csvContent = [
                 headers.join(','),
-                ...allComments.map(c => [
-                    escapeCsvField(c.videoTitle), 
-                    escapeCsvField(c.author), 
-                    escapeCsvField(c.publishedAt),
-                    escapeCsvField(c.likeCount.toString()), 
-                    escapeCsvField(c.text),
-                    escapeCsvField(c.videoDescription),
-                    escapeCsvField(c.videoTags.join(' | ')),
-                ].join(','))
+                ...csvRows
             ].join('\n');
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             downloadFile(blob, `${channel.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_all_comments.csv`);

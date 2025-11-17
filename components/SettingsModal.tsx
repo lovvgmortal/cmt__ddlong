@@ -67,7 +67,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, a
         <div className="space-y-6">
             <div>
                 <label htmlFor="apiKey" className="block text-sm font-medium text-gray-300 mb-2">
-                    KEY V1
+                    YouTube Data API v3 Key
                 </label>
                 <div className="flex gap-2">
                     <input
@@ -75,12 +75,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, a
                     type="password"
                     value={newApiKey}
                     onChange={(e) => setNewApiKey(e.target.value)}
-                    placeholder="Enter new key"
+                    placeholder="Enter new API key"
                     className="flex-grow w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-white focus:outline-none focus:ring-2 focus:ring-gray-500"
                     />
                     <button onClick={handleAddKey} className="p-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors"><AddIcon className="w-6 h-6"/></button>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">Your keys are stored only in your browser and are required to fetch data from YouTube.</p>
+                <p className="text-xs text-gray-500 mt-2">Your API keys are stored only in your browser and are required to fetch data from YouTube.</p>
             </div>
 
             {localSettings.keys.length > 0 && (

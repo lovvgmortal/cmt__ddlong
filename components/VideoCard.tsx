@@ -72,17 +72,34 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, apiKey }) => {
   }, [video.id, apiKey]);
 
   const handleDownloadCsv = () => {
-    const headers = ['Author', 'Published At', 'Like Count', 'Comment Text', 'Video Description', 'Video Tags'];
+    const headers = ['Video Description', 'Video Tags', 'Author', 'Published At', 'Like Count', 'Comment Text'];
+    const sortedComments = [...comments].sort((a, b) => b.likeCount - a.likeCount);
+
+    const csvRows = sortedComments.map((c, index) => {
+      if (index === 0) {
+        return [
+          escapeCsvField(video.description),
+          escapeCsvField(video.tags.join(' | ')),
+          escapeCsvField(c.author),
+          escapeCsvField(c.publishedAt),
+          escapeCsvField(c.likeCount.toString()),
+          escapeCsvField(c.text),
+        ].join(',');
+      } else {
+        return [
+          '',
+          '',
+          escapeCsvField(c.author),
+          escapeCsvField(c.publishedAt),
+          escapeCsvField(c.likeCount.toString()),
+          escapeCsvField(c.text),
+        ].join(',');
+      }
+    });
+
     const csvContent = [
       headers.join(','),
-      ...comments.map(c => [
-        escapeCsvField(c.author),
-        escapeCsvField(c.publishedAt),
-        escapeCsvField(c.likeCount.toString()),
-        escapeCsvField(c.text),
-        escapeCsvField(video.description),
-        escapeCsvField(video.tags.join(' | ')),
-      ].join(','))
+      ...csvRows
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
