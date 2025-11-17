@@ -11,7 +11,7 @@ declare var JSZip: any;
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return sessionStorage.getItem('yt-analyzer-authenticated') === 'true';
+    return localStorage.getItem('yt-analyzer-authenticated') === 'true';
   });
 
   const [apiSettings, setApiSettings] = useState<ApiSettings>(() => {
@@ -64,7 +64,7 @@ const App: React.FC = () => {
 
   const handleLogin = (user: string, pass: string): boolean => {
     if (user === 'admin' && pass === 'Youtube@2025') {
-        sessionStorage.setItem('yt-analyzer-authenticated', 'true');
+        localStorage.setItem('yt-analyzer-authenticated', 'true');
         setIsAuthenticated(true);
         return true;
     }
