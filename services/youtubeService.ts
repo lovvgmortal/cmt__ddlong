@@ -29,18 +29,73 @@ const extractChannelId = (url: string): { type: 'id' | 'username' | 'custom' | '
 
   let match = url.match(channelIdRegex);
   if (match) return { type: 'id', value: match[1] };
-  
+
   match = url.match(handleRegex);
   if (match) return { type: 'handle', value: match[1] };
 
   match = url.match(customUrlRegex);
   if (match) return { type: 'custom', value: match[1] };
-  
+
   match = url.match(usernameRegex);
   if (match) return { type: 'username', value: match[1] };
 
 
   return { type: null, value: '' };
+};
+
+export const extractVideoId = (url: string): string | null => {
+  // youtube.com/watch?v=xxx
+  const watchRegex = /[?&]v=([a-zA-Z0-9_-]{11})/;
+  // youtu.be/xxx
+  const shortRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
+  // youtube.com/shorts/xxx
+  const shortsRegex = /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/;
+
+  let match = url.match(watchRegex);
+  if (match) return match[1];
+
+  match = url.match(shortRegex);
+  if (match) return match[1];
+
+  match = url.match(shortsRegex);
+  if (match) return match[1];
+
+  return null;
+};
+
+export const fetchSingleVideoInfo = async (
+  videoId: string,
+  apiKey: string
+): Promise<YouTubeVideo> => {
+  const videosUrl = new URL(`${API_BASE_URL}/videos`);
+  videosUrl.searchParams.set('part', 'snippet,statistics,contentDetails,status,topicDetails');
+  videosUrl.searchParams.set('id', videoId);
+  videosUrl.searchParams.set('key', apiKey);
+
+  const response = await fetch(videosUrl.toString()).then(handleApiError);
+
+  if (!response.items || response.items.length === 0) {
+    throw new Error('Video not found. Please check the URL and try again.');
+  }
+
+  const item = response.items[0];
+  return {
+    id: item.id,
+    title: item.snippet.title,
+    thumbnailUrl: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
+    viewCount: item.statistics.viewCount || '0',
+    likeCount: item.statistics.likeCount || '0',
+    commentCount: item.statistics.commentCount || '0',
+    publishedAt: item.snippet.publishedAt,
+    duration: item.contentDetails.duration,
+    definition: item.contentDetails.definition,
+    isForKids: item.status.madeForKids,
+    topicCategories: item.topicDetails?.topicCategories
+      ?.map((url: string) => decodeURIComponent(url.split('/').pop()?.replace(/_/g, ' ') || ''))
+      .filter(Boolean),
+    description: item.snippet.description,
+    tags: item.snippet.tags || [],
+  };
 };
 
 export const fetchChannelInfo = async (
@@ -75,12 +130,12 @@ export const fetchChannelInfo = async (
     searchUrl.searchParams.set('q', value);
     searchUrl.searchParams.set('type', 'channel');
     searchUrl.searchParams.set('key', apiKey);
-    
+
     // FIX: The API call to fetch search results was missing, causing a reference error.
     const searchResponse = await fetch(searchUrl.toString()).then(handleApiError);
-    
-    const foundChannel = searchResponse.items?.find((item: any) => 
-        item.snippet.channelTitle.toLowerCase() === value.toLowerCase()
+
+    const foundChannel = searchResponse.items?.find((item: any) =>
+      item.snippet.channelTitle.toLowerCase() === value.toLowerCase()
     );
 
     if (!foundChannel) {
@@ -105,13 +160,13 @@ export const fetchChannelInfo = async (
   const tags = tagsString.split(/\s+/).filter(Boolean);
 
   return {
-      id: channelItem.id,
-      name: channelItem.snippet.title,
-      thumbnailUrl: channelItem.snippet.thumbnails.medium.url,
-      uploadsPlaylistId: channelItem.contentDetails.relatedPlaylists.uploads,
-      subscriberCount: channelItem.statistics.hiddenSubscriberCount ? undefined : channelItem.statistics.subscriberCount,
-      videoCount: channelItem.statistics.videoCount,
-      tags: tags,
+    id: channelItem.id,
+    name: channelItem.snippet.title,
+    thumbnailUrl: channelItem.snippet.thumbnails.medium.url,
+    uploadsPlaylistId: channelItem.contentDetails.relatedPlaylists.uploads,
+    subscriberCount: channelItem.statistics.hiddenSubscriberCount ? undefined : channelItem.statistics.subscriberCount,
+    videoCount: channelItem.statistics.videoCount,
+    tags: tags,
   };
 };
 
@@ -183,50 +238,94 @@ export const getVideoComments = async (
   let allComments: YouTubeComment[] = [];
   let nextPageToken: string | undefined = undefined;
   let totalFetched = 0;
-  
+
   const videoDetailsResp = await fetch(`${API_BASE_URL}/videos?part=statistics&id=${videoId}&key=${apiKey}`).then(handleApiError);
   const totalComments = parseInt(videoDetailsResp.items[0]?.statistics?.commentCount || '0', 10);
-  
+
   if (totalComments === 0) return [];
-  
+
   try {
     do {
       const commentsUrl = new URL(`${API_BASE_URL}/commentThreads`);
-      commentsUrl.searchParams.set('part', 'snippet');
+      commentsUrl.searchParams.set('part', 'snippet,replies');
       commentsUrl.searchParams.set('videoId', videoId);
       commentsUrl.searchParams.set('maxResults', '100');
       commentsUrl.searchParams.set('key', apiKey);
       if (nextPageToken) {
         commentsUrl.searchParams.set('pageToken', nextPageToken);
       }
-      
+
       const response = await fetch(commentsUrl.toString()).then(handleApiError);
-      
-      const commentsData = response.items.map((item: any): YouTubeComment => {
-        const snippet = item.snippet.topLevelComment.snippet;
-        return {
-          author: snippet.authorDisplayName,
-          text: snippet.textDisplay,
-          publishedAt: snippet.publishedAt,
-          likeCount: snippet.likeCount,
-        };
-      });
-      allComments.push(...commentsData);
-      totalFetched += commentsData.length;
-      
-      if(totalComments > 0) {
+
+      for (const item of response.items) {
+        // Add top-level comment
+        const topSnippet = item.snippet.topLevelComment.snippet;
+        allComments.push({
+          author: topSnippet.authorDisplayName,
+          text: topSnippet.textDisplay,
+          publishedAt: topSnippet.publishedAt,
+          likeCount: topSnippet.likeCount,
+        });
+        totalFetched++;
+
+        // Fetch replies
+        const totalReplyCount = item.snippet.totalReplyCount || 0;
+        if (totalReplyCount > 0) {
+          // If all replies are already included inline (<=5 replies)
+          if (item.replies && item.replies.comments && item.replies.comments.length >= totalReplyCount) {
+            for (const reply of item.replies.comments) {
+              const replySnippet = reply.snippet;
+              allComments.push({
+                author: `↳ ${replySnippet.authorDisplayName}`,
+                text: replySnippet.textDisplay,
+                publishedAt: replySnippet.publishedAt,
+                likeCount: replySnippet.likeCount,
+              });
+              totalFetched++;
+            }
+          } else {
+            // Need to fetch all replies via comments.list endpoint
+            let replyPageToken: string | undefined = undefined;
+            do {
+              const repliesUrl = new URL(`${API_BASE_URL}/comments`);
+              repliesUrl.searchParams.set('part', 'snippet');
+              repliesUrl.searchParams.set('parentId', item.id);
+              repliesUrl.searchParams.set('maxResults', '100');
+              repliesUrl.searchParams.set('key', apiKey);
+              if (replyPageToken) {
+                repliesUrl.searchParams.set('pageToken', replyPageToken);
+              }
+
+              const repliesResponse = await fetch(repliesUrl.toString()).then(handleApiError);
+              for (const reply of repliesResponse.items) {
+                const replySnippet = reply.snippet;
+                allComments.push({
+                  author: `↳ ${replySnippet.authorDisplayName}`,
+                  text: replySnippet.textDisplay,
+                  publishedAt: replySnippet.publishedAt,
+                  likeCount: replySnippet.likeCount,
+                });
+                totalFetched++;
+              }
+              replyPageToken = repliesResponse.nextPageToken;
+            } while (replyPageToken);
+          }
+        }
+      }
+
+      if (totalComments > 0) {
         updateProgress(Math.min(100, (totalFetched / totalComments) * 100));
       }
 
       nextPageToken = response.nextPageToken;
     } while (nextPageToken);
-  } catch(err: any) {
-     if (err.message && err.message.includes('disabled comments')) {
-        throw new Error('Comments are disabled for this video.');
-     }
-     throw err;
+  } catch (err: any) {
+    if (err.message && err.message.includes('disabled comments')) {
+      throw new Error('Comments are disabled for this video.');
+    }
+    throw err;
   }
-  
+
   updateProgress(100);
   return allComments;
 };
@@ -274,8 +373,8 @@ export const saveVideosToCache = async (channelId: string, videos: YouTubeVideo[
 
     request.onsuccess = () => resolve();
     request.onerror = () => {
-        console.error('Error saving videos to IndexedDB:', request.error);
-        reject(request.error);
+      console.error('Error saving videos to IndexedDB:', request.error);
+      reject(request.error);
     };
   });
 };
@@ -291,23 +390,23 @@ export const getVideosFromCache = async (channelId: string): Promise<YouTubeVide
       resolve(request.result?.videos || null);
     };
     request.onerror = () => {
-        console.error('Error getting videos from IndexedDB:', request.error);
-        reject(request.error);
+      console.error('Error getting videos from IndexedDB:', request.error);
+      reject(request.error);
     };
   });
 };
 
 export const deleteVideosFromCache = async (channelId: string): Promise<void> => {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.delete(channelId);
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(channelId);
 
-        request.onsuccess = () => resolve();
-        request.onerror = () => {
-            console.error('Error deleting videos from IndexedDB:', request.error);
-            reject(request.error);
-        };
-    });
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+      console.error('Error deleting videos from IndexedDB:', request.error);
+      reject(request.error);
+    };
+  });
 };
