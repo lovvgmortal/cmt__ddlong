@@ -237,6 +237,39 @@ const App: React.FC = () => {
     ].join('\n');
   };
 
+  const createChannelMetadataCsvString = (videos: YouTubeVideo[]): string => {
+    const headers = [
+      'Video Title',
+      'Video URL',
+      'Published At',
+      'View Count',
+      'Like Count',
+      'Comment Count',
+      'Duration',
+      'Definition',
+      'For Kids',
+      'Topic Categories',
+      'Description',
+      'Tags',
+    ];
+    const csvRows = videos.map((video) => [
+      escapeCsvField(video.title),
+      escapeCsvField(`https://www.youtube.com/watch?v=${video.id}`),
+      escapeCsvField(video.publishedAt),
+      escapeCsvField(video.viewCount),
+      escapeCsvField(video.likeCount),
+      escapeCsvField(video.commentCount),
+      escapeCsvField(video.duration),
+      escapeCsvField(video.definition),
+      escapeCsvField(video.isForKids ? 'Yes' : 'No'),
+      escapeCsvField(video.topicCategories?.join(' | ') || ''),
+      escapeCsvField(video.description),
+      escapeCsvField(video.tags.join(' | ')),
+    ].join(','));
+
+    return [headers.join(','), ...csvRows].join('\n');
+  };
+
   const downloadFile = (blob: Blob, filename: string) => {
     const link = document.createElement('a');
     if (link.download !== undefined) {
@@ -249,6 +282,17 @@ const App: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     }
+  };
+
+  const handleExportChannelMetadata = (channel: Channel) => {
+    if (!channel.videos.length) {
+      setError('Please fetch videos for this channel before exporting metadata.');
+      return;
+    }
+
+    const csvContent = createChannelMetadataCsvString(channel.videos);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    downloadFile(blob, `${channel.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_metadata.csv`);
   };
 
   const handleFetchAllChannelComments = useCallback(async (channel: Channel, format: 'single' | 'zip') => {
@@ -763,14 +807,24 @@ const App: React.FC = () => {
           </div>
           <div className="flex-shrink-0 mt-4 sm:mt-0">
             {channel.videos.length > 0 && (
-              <button
-                onClick={() => { setChannelForCommentDownload(channel); setIsDownloadOptionsOpen(true); }}
-                disabled={isFetchingAllComments || isLoading}
-                className="bg-white text-black font-bold py-2 px-4 rounded-md hover:bg-gray-300 transition-colors flex items-center gap-2 disabled:opacity-50"
-              >
-                <DownloadIcon className="w-5 h-5" />
-                Get All Channel Comments
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => handleExportChannelMetadata(channel)}
+                  disabled={isFetchingAllComments || isLoading}
+                  className="bg-gray-700 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <DownloadIcon className="w-5 h-5" />
+                  Export Metadata
+                </button>
+                <button
+                  onClick={() => { setChannelForCommentDownload(channel); setIsDownloadOptionsOpen(true); }}
+                  disabled={isFetchingAllComments || isLoading}
+                  className="bg-white text-black font-bold py-2 px-4 rounded-md hover:bg-gray-300 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <DownloadIcon className="w-5 h-5" />
+                  Get All Channel Comments
+                </button>
+              </div>
             )}
           </div>
         </div>
